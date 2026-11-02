@@ -23,6 +23,8 @@ The model has 2,019 fitted parameters and reaches 406,000 TCR-peptide prediction
 
 Open `TACO_demo.ipynb` for a quick walkthrough of loading the model and running predictions.
 
+The notebooks may prompt you to select a kernel -- chose any Python 3 environment you have available.
+
 ## Citation
 
 If you use TACO in your work, please cite:
