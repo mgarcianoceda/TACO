@@ -218,15 +218,79 @@ class TACOModel:
         The score retains the global bias and cross-antigen comparability — no per-peptide
         normalization is applied."""
         if peptides is not None:
+            if parallel:
+                return self._score_beta_panel_parallel(df, peptides, n_workers)
             return self._score_beta_panel(df, peptides)
+        if parallel:
+            return self._score_beta_parallel(df, n_workers)
         return self._score_beta_single(df)
 
-    def _score_beta_single(self, df):
+    def _score_beta_setup(self, df):
+        """Dedup, encode, beta geometry, peptide index."""
         codes, IDX, LEN, Lmax = self._dedup_and_encode(df)
         pep = df["peptide"].values.astype(str)
         pep_idx = self._build_pep_index(pep)
         all_S = self._compute_geometry_beta(IDX, LEN, Lmax, [Lp for Lp in pep_idx])
+        return codes, pep_idx, all_S
+
+    def _score_beta_single(self, df):
+        codes, pep_idx, all_S = self._score_beta_setup(df)
         return self._score_from_setup(codes, pep_idx, all_S, len(df))
+
+    def _score_beta_parallel(self, df, n_workers=None):
+        import multiprocessing
+        if n_workers is None:
+            n_workers = multiprocessing.cpu_count()
+        n_workers = min(n_workers, max(1, len(df) // 500))
+        if n_workers <= 1:
+            return self._score_beta_single(df)
+        pep = df["peptide"].values.astype(str)
+        n_unique_pep = len(np.unique(pep))
+        if n_unique_pep >= n_workers:
+            return self._score_beta_parallel_by_peptide(df, n_workers)
+        return self._score_beta_parallel_by_rows(df, n_workers)
+
+    def _score_beta_parallel_by_peptide(self, df, n_workers):
+        import multiprocessing
+        codes, pep_idx, all_S = self._score_beta_setup(df)
+        jobs = [(Lp, p) for Lp in sorted(pep_idx) for p in sorted(pep_idx[Lp])]
+        global _taco_par_codes, _taco_par_pep_idx, _taco_par_all_S
+        global _taco_par_surfaces, _taco_par_aa
+        _taco_par_codes = codes
+        _taco_par_pep_idx = pep_idx
+        _taco_par_all_S = all_S
+        _taco_par_surfaces = self.spec["surfaces"]
+        _taco_par_aa = self.aa
+        batches = [[] for _ in range(n_workers)]
+        for i, job in enumerate(jobs):
+            batches[i % n_workers].append(job)
+        with multiprocessing.Pool(n_workers) as pool:
+            results = pool.map(_taco_score_peptide_batch, batches)
+        _taco_par_codes = None
+        _taco_par_pep_idx = None
+        _taco_par_all_S = None
+        _taco_par_surfaces = None
+        _taco_par_aa = None
+        out = np.zeros(len(df))
+        for batch_result in results:
+            for rows, z in batch_result:
+                out[rows] = z
+        out += self.spec.get("bias", 0.0)
+        return out
+
+    def _score_beta_parallel_by_rows(self, df, n_workers):
+        import multiprocessing
+        global _taco_par_spec, _taco_par_df
+        _taco_par_spec = self.spec
+        _taco_par_df = df.reset_index(drop=True)
+        chunk = len(_taco_par_df) // n_workers
+        ranges = [(i * chunk, (i + 1) * chunk if i < n_workers - 1 else len(_taco_par_df))
+                  for i in range(n_workers)]
+        with multiprocessing.Pool(n_workers) as pool:
+            results = pool.map(_taco_score_beta_row_range, ranges)
+        _taco_par_spec = None
+        _taco_par_df = None
+        return np.concatenate(results)
 
     def _score_beta_panel(self, df_tcr, peptides):
         codes, IDX, LEN, Lmax = self._dedup_and_encode(df_tcr)
@@ -248,6 +312,42 @@ class TACOModel:
                 for j in range(Lp):
                     z += (G[:, j, :] @ M[:, b[j]]) * w[j]
             unique_out[:, pi] = z
+        return pd.DataFrame(unique_out[codes] + self.spec.get("bias", 0.0),
+                            index=df_tcr.index, columns=peptides)
+
+    def _panel_beta_setup(self, df_tcr, peptides):
+        codes, IDX, LEN, Lmax = self._dedup_and_encode(df_tcr)
+        pep_lengths = [len(p) for p in peptides]
+        all_S = self._compute_geometry_beta(IDX, LEN, Lmax, pep_lengths)
+        return codes, all_S
+
+    def _score_beta_panel_parallel(self, df_tcr, peptides, n_workers=None):
+        import multiprocessing
+        if n_workers is None:
+            n_workers = multiprocessing.cpu_count()
+        n_workers = min(n_workers, len(peptides))
+        if n_workers <= 1:
+            return self._score_beta_panel(df_tcr, peptides)
+        codes, all_S = self._panel_beta_setup(df_tcr, peptides)
+        n_unique = int(codes.max()) + 1 if len(codes) > 0 else 0
+        global _taco_par_all_S, _taco_par_surfaces, _taco_par_aa, _taco_par_n_unique
+        _taco_par_all_S = all_S
+        _taco_par_surfaces = self.spec["surfaces"]
+        _taco_par_aa = self.aa
+        _taco_par_n_unique = n_unique
+        batches = [[] for _ in range(n_workers)]
+        for i, p in enumerate(peptides):
+            batches[i % n_workers].append((i, p))
+        with multiprocessing.Pool(n_workers) as pool:
+            results = pool.map(_taco_score_panel_batch, batches)
+        _taco_par_all_S = None
+        _taco_par_surfaces = None
+        _taco_par_aa = None
+        _taco_par_n_unique = None
+        unique_out = np.zeros((n_unique, len(peptides)))
+        for batch_result in results:
+            for pi, z in batch_result:
+                unique_out[:, pi] = z
         return pd.DataFrame(unique_out[codes] + self.spec.get("bias", 0.0),
                             index=df_tcr.index, columns=peptides)
 
@@ -459,6 +559,12 @@ def _taco_score_row_range(start_end):
     start, end = start_end
     m = TACOModel(_taco_par_spec)
     return m._score_single(_taco_par_df.iloc[start:end].reset_index(drop=True))
+
+def _taco_score_beta_row_range(start_end):
+    """Worker: beta-only scoring on a row slice from fork-inherited globals."""
+    start, end = start_end
+    m = TACOModel(_taco_par_spec)
+    return m._score_beta_single(_taco_par_df.iloc[start:end].reset_index(drop=True))
 
 def _taco_score_panel_batch(batch):
     """Worker: score a batch of peptides against all unique TCRs (panel mode)."""
