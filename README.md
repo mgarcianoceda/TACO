@@ -2,7 +2,7 @@
 
 **An open, interpretable model for microsecond-scale TCR specificity prediction**
 
-![TACO model overview](images/taco_model_overview.png)
+![TACO model overview](images/taco_model_overview_cartoon.png)
 
 TACO (T-Cell Activation from Chemistry and Orientation) is an open statistical model for predicting TCR specificity against HLA-A\*02:01-presented peptides. It takes as input the peptide sequence and six TCR CDR loop sequences, selects a canonical orientation of the CDR loops over the peptide, and learns amino-acid contact-potential matrices and peptide-exposure profiles from binary activation labels. No experimentally determined or predicted structures are required.
 
