@@ -33,6 +33,26 @@ If you use TACO in your work, please cite:
 
 A BibTeX entry will be provided once the paper is published.
 
+## License
+
+TACO source code is licensed under the Apache License, Version 2.0 (see the LICENSE file in this repository).
+
+### Model Weights Terms of Use
+
+Trained model weights are being made available with this repository solely for research purposes. The model weights may not be used, directly or indirectly, for commercial development or commercialization of any product or service without prior written permission from Adaptive Biotechnologies, Corp.
+
+### Data and code availability
+
+The trained model weights provided here were learned using proprietary datasets. As a result, these weights cannot be exactly re-fit using the training code provided here.
+
+### Intellectual Property Notice
+
+Copyright &copy; 2026 Adaptive Biotechnologies Corp. The availability of this source code should not be interpreted as a dedication to the public, disclosure, waiver, or license of any intellectual property rights other than the specific rights expressly granted under the applicable software license. Any descriptions, examples, test data, workflows, or documentation included in this repository are provided solely to support use of the software as permitted by the applicable license and should not be construed as granting any additional rights. The code, data, documentation, and other materials made available through this repository are intended solely for non-commercial research and informational purposes. They may not be used, directly or indirectly, to develop, validate, support, market, sell, license, or commercialize any product or service without prior written permission from Adaptive Biotechnologies, Corp.
+
+### Questions
+
+For questions about the methods or manuscript, please contact the corresponding author(s) listed in the preprint.
+
 ## Related
 
 TACO was created at [Adaptive Biotechnologies](https://www.adaptivebiotech.com/). For additional models and curated immunomics datasets, visit [Harell Data](https://harelldata.com/).
